@@ -616,3 +616,74 @@ struct
   let pretty_diff () ((x:t),(y:t)): Pretty.doc =
     Pretty.dprintf "%a not leq %a" pretty x pretty y
 end
+
+module LookaheadConf (C: Printable.ProdConfiguration) (Base: S) =
+struct
+  include Printable.ProdConf (C) (Base) (Base)
+
+  let bot () = (Base.bot (), Base.bot())
+  let is_bot (m, p) = Base.is_bot m
+  let top () = (Base.top (), Base.top ())
+  let is_top (m, p) = Base.is_top m && Base.is_top p
+
+  let leq (m1,p1) (m2,p2) = Base.leq m1 m2 && (not (Base.equal m1 m2) || Base.leq p1 p2)
+
+  let pretty_diff () ((m1,p1:t),(m2,p2:t)): Pretty.doc =
+    if Base.leq m1 m2 then
+      Base.pretty_diff () (p1,p2)
+    else
+      Base.pretty_diff () (m1,m2)
+
+  let op_scheme op1 op2 (m1,p1) (m2,p2) = (op1 m1 m2, op2 p1 p2)
+  let join x y = if !AnalysisState.widening then y else op_scheme Base.join Base.join x y
+  let meet = op_scheme Base.meet Base.meet (** Might not be correct *)
+  let narrow = op_scheme Base.narrow Base.narrow (** Might not be correct *)
+  let widen (m1,p1) (m2,p2) =
+    if leq (m2,p2) (m1,p1) then (m1,p1)
+    else if Base.leq p2 p1 then (p2,p2)
+    else op_scheme Base.join (fun y x -> if Base.leq x y then y else Base.widen y (Base.join x y)) (m1,p1) (m2,p2)
+
+  let printXml f (x,y) =
+    BatPrintf.fprintf f "%a%a" Base.printXml x Base.printXml y
+end
+
+module Lookahead = LookaheadConf (struct let expand_fst = true let expand_snd = true end)
+module LookaheadSimple = LookaheadConf (struct let expand_fst = false let expand_snd = false end)
+
+module DelayedConf (C: Printable.ProdConfiguration) (Base: S) =
+struct
+  (** n () is an arbitrary constant *)
+  let n () = GobConfig.get_int "ana.widen.delay"
+  module P = (Printable.Chain (struct let n () = n () let names n = (string_of_int n) end))
+
+  include Printable.ProdConf (C) (Base) (P)
+
+  let bot () = (Base.bot (), 0)
+  let is_bot (b, _) = Base.is_bot b
+  let top () = (Base.top (), n ())
+  let is_top (b, _) = Base.is_top b
+
+  let leq (b1,_) (b2,_) = Base.leq b1 b2
+
+  let pretty_diff () (((b1,i1):t),((b2,i2):t)): Pretty.doc =
+    if Base.leq b1 b2 then
+      let f = fun () i -> Pretty.num i in
+      Pretty.dprintf "%a not leq %a" f i1 f i2
+    else
+      Base.pretty_diff () (b1,b2)
+
+  let join (b1,i1) (b2,i2) = (Base.join b1 b2, max i1 i2)
+  let meet (b1,i1) (b2,i2) = (Base.meet b1 b2, max i1 i2)
+  let narrow (b1,i1) (b2,i2) = (Base.narrow b1 b2, max i1 i2)
+  let widen (b1,i1) (b2,i2) =
+    if max i1 i2 < n () then
+      (Base.join b1 b2, 1 + max i1 i2)
+    else
+      (Base.widen b1 b2, max i1 i2)
+
+  let printXml f (b, i) =
+    BatPrintf.fprintf f "%a<analysis name=\"widen-delay\">%a</analysis>" Base.printXml b P.printXml i
+end
+
+module Delayed = DelayedConf (struct let expand_fst = true let expand_snd = true end)
+module DelayedSimple = DelayedConf (struct let expand_fst = false let expand_snd = false end)

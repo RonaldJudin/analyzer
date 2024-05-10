@@ -23,6 +23,7 @@ let spec_module: (module Spec) Lazy.t = lazy (
             |> lift (get_bool "ana.opt.hashcons" || arg_enabled) (module HashconsContextLifter)
             |> lift arg_enabled (module HashconsLifter)
             |> lift arg_enabled (module WitnessConstraints.PathSensitive3)
+            |> lift (true) (module Delayed)
             |> lift (not arg_enabled) (module PathSensitive2)
             |> lift (get_bool "ana.dead-code.branches") (module DeadBranchLifter)
             |> lift true (module DeadCodeLifter)
@@ -30,6 +31,7 @@ let spec_module: (module Spec) Lazy.t = lazy (
             |> lift (get_int "dbg.limit.widen" > 0) (module LimitLifter)
             |> lift (get_bool "ana.opt.equal" && not (get_bool "ana.opt.hashcons")) (module OptEqual)
             |> lift (get_bool "ana.opt.hashcons") (module HashconsLifter)
+            |> lift (false) (module Lookahead)
             (* Widening tokens must be outside of hashcons, because widening token domain ignores token sets for identity, so hashcons doesn't allow adding tokens.
                Also must be outside of deadcode, because deadcode splits (like mutex lock event) don't pass on tokens. *)
             |> lift (get_bool "ana.widen.tokens") (module WideningTokens.Lifter)

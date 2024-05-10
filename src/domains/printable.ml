@@ -644,3 +644,61 @@ struct
 
   let to_yojson x = x (* override SimplePretty *)
 end
+
+module type LookaheadConfiguration =
+sig
+  val expand_fst: bool
+  val expand_snd: bool
+end
+
+module LookaheadConf (C: LookaheadConfiguration) (Base: S)=
+struct
+  include C
+
+  type t = Bot | Pair of Base.t * Base.t [@@deriving eq, ord, hash]
+
+  include Std
+
+  let show x =
+    match x with
+    | Bot -> "⊥"
+    | Pair (m,p) ->
+      (* TODO: remove ref *)
+      let first  = ref "" in
+      let second = ref "" in
+      first  := Base.show m;
+      second := Base.show p;
+      "(" ^ !first ^ ", " ^ !second ^ ")"
+
+  let name () = Base.name () ^ " * " ^ Base.name ()
+
+  let pretty () x =
+    match x with
+    | Bot -> text "⊥"
+    | Pair (m,p) ->
+      if expand_fst || expand_snd then
+        text "("
+        ++ (if expand_fst then Base.pretty () m else text (Base.show m))
+        ++ text ", "
+        ++ (if expand_snd then Base.pretty () p else text (Base.show p))
+        ++ text ")"
+      else
+        text (show (Pair (m,p)))
+
+  let printXml f (x,y) = function
+    | Bot -> BatPrintf.fprintf f "<value>\n<data>\nbot\n</data>\n</value>\n"
+    | Pair (m,p) -> BatPrintf.fprintf f "<value>\n<map>\n<key>\n%s\n</key>\n%a<key>\n%s\n</key>\n%a</map>\n</value>\n" (XmlUtil.escape (Base.name ())) Base.printXml m (XmlUtil.escape (Base.name ())) Base.printXml p
+
+  let to_yojson x =
+    match x with
+    | Bot -> `String "⊥"
+    | Pair (m, p) ->
+      `Assoc [ (Base.name (), Base.to_yojson m); (Base.name (), Base.to_yojson p) ]
+
+  let arbitrary () = QCheck.pair (Base.arbitrary ()) (Base.arbitrary ())
+
+  let relift x = x
+end
+
+module Lookahead = LookaheadConf (struct let expand_fst = true let expand_snd = true end)
+module LookaheadSimple = LookaheadConf (struct let expand_fst = false let expand_snd = false end)
